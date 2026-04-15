@@ -1,0 +1,14 @@
+{
+  "name": "openchat-server",
+  "version": "1.0.0",
+  "description": "OpenChat Server — open-source voice & text chat server",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "ws": "^8.16.0"
+  }
+}

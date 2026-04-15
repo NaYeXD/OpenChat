@@ -1,0 +1,15 @@
+/Client/node_modules
+/Server/node_modules
+Client/node_modules/.vite/deps/react.js
+Client/node_modules/.vite/deps/react-dom.js
+Client/node_modules/.vite/deps/_metadata.json
+Client/node_modules/.vite/deps/chunk-373CG7ZK.js
+Client/node_modules/.vite/deps/chunk-REFQX4J5.js
+Client/node_modules/.vite/deps/react-dom_client.js
+Client/node_modules/.vite/deps/react_jsx-runtime.js
+Client/node_modules/.vite/deps/chunk-373CG7ZK.js.map
+Client/node_modules/.vite/deps/chunk-REFQX4J5.js.map
+Client/node_modules/.vite/deps/react-dom_client.js.map
+Client/node_modules/.vite/deps/react_jsx-dev-runtime.js
+Client/node_modules/.vite/deps/react_jsx-runtime.js.map
+Client/node_modules/.vite/deps/react_jsx-dev-runtime.js.map
