@@ -13,3 +13,4 @@ Client/node_modules/.vite/deps/react-dom_client.js.map
 Client/node_modules/.vite/deps/react_jsx-dev-runtime.js
 Client/node_modules/.vite/deps/react_jsx-runtime.js.map
 Client/node_modules/.vite/deps/react_jsx-dev-runtime.js.map
+*.pem

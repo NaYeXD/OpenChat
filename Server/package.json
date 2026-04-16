@@ -8,7 +8,9 @@
     "dev": "node --watch server.js"
   },
   "dependencies": {
+    "bcryptjs": "^3.0.3",
     "dotenv": "^16.4.5",
+    "node-forge": "^1.4.0",
     "ws": "^8.16.0"
   }
 }

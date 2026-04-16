@@ -1,27 +1,72 @@
 /**
- * ConnectScreen.jsx — Initial connection / login screen
+ * ConnectScreen.jsx — Connect / login screen (Phase 3)
+ *
+ * New in Phase 3:
+ *  - "Remember this server" checkbox — saves IP & port to localStorage
+ *  - Pre-fills IP/port from localStorage on mount
+ *  - Shows a wss:// encrypted badge so users know it is secure
+ *  - Clears remembered server via a small "forget" link
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+
+const STORAGE_KEY = 'openchat_remembered_server';
+
+function loadRemembered() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveRemembered(serverIp, port) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ serverIp, port }));
+  } catch {}
+}
+
+function forgetRemembered() {
+  try { localStorage.removeItem(STORAGE_KEY); } catch {}
+}
 
 export default function ConnectScreen({ onConnect, error, isConnecting }) {
-  const [serverIp, setServerIp]   = useState('');
-  const [port, setPort]           = useState('4000');
-  const [password, setPassword]   = useState('');
+  const remembered = loadRemembered();
+
+  const [serverIp,  setServerIp]  = useState(remembered?.serverIp ?? '');
+  const [port,      setPort]      = useState(remembered?.port      ?? '4000');
+  const [password,  setPassword]  = useState('');
+  const [remember,  setRemember]  = useState(!!remembered);
+  const [hasMemory, setHasMemory] = useState(!!remembered);
 
   function handleSubmit(e) {
     e.preventDefault();
     if (!serverIp.trim() || isConnecting) return;
+
+    if (remember) {
+      saveRemembered(serverIp.trim(), port.trim() || '4000');
+    } else {
+      forgetRemembered();
+    }
+
     onConnect({
       serverIp: serverIp.trim(),
-      port: port.trim() || '4000',
+      port:     port.trim() || '4000',
       password,
     });
   }
 
+  function handleForget() {
+    forgetRemembered();
+    setServerIp('');
+    setPort('4000');
+    setRemember(false);
+    setHasMemory(false);
+  }
+
   return (
     <div className="connect-root">
-      {/* Animated grid background */}
       <div className="connect-grid" aria-hidden="true" />
 
       <div className="connect-card">
@@ -34,6 +79,12 @@ export default function ConnectScreen({ onConnect, error, isConnecting }) {
           </div>
           <h1 className="connect-title">OpenChat</h1>
           <p className="connect-sub">Open-source · Self-hosted · Free</p>
+        </div>
+
+        {/* Secure badge */}
+        <div className="connect-secure-badge">
+          <span className="secure-icon">🔒</span>
+          <span className="secure-text">Encrypted connection (wss://)</span>
         </div>
 
         {/* Form */}
@@ -88,10 +139,34 @@ export default function ConnectScreen({ onConnect, error, isConnecting }) {
             />
           </div>
 
+          {/* Remember checkbox */}
+          <div className="field-remember">
+            <label className="remember-label">
+              <input
+                type="checkbox"
+                className="remember-checkbox"
+                checked={remember}
+                onChange={e => setRemember(e.target.checked)}
+                disabled={isConnecting}
+              />
+              <span className="remember-text">Remember this server</span>
+            </label>
+            {hasMemory && (
+              <button
+                type="button"
+                className="forget-btn"
+                onClick={handleForget}
+                title="Clear saved server"
+              >
+                forget
+              </button>
+            )}
+          </div>
+
           {error && (
             <div className="connect-error" role="alert">
               <span className="error-icon">!</span>
-              {error}
+              <span style={{ whiteSpace: 'pre-line' }}>{error}</span>
             </div>
           )}
 
@@ -101,19 +176,16 @@ export default function ConnectScreen({ onConnect, error, isConnecting }) {
             disabled={isConnecting || !serverIp.trim()}
           >
             {isConnecting ? (
-              <>
-                <span className="spinner" />
-                Connecting…
-              </>
+              <><span className="spinner" /> Connecting…</>
             ) : (
-              'Connect to Server'
+              '🔒 Connect Securely'
             )}
           </button>
         </form>
 
         <p className="connect-footer">
           Need a server?&nbsp;
-          <span className="footer-hint">Run <code>node server.js</code> on your homelab.</span>
+          <span className="footer-hint">Run <code>npm start</code> in <code>server/</code>.</span>
         </p>
       </div>
     </div>

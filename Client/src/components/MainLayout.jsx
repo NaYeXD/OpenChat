@@ -1,19 +1,14 @@
 /**
- * MainLayout.jsx — Two-panel layout (Phase 2)
- * Passes voice state and mySessionId down to children.
+ * MainLayout.jsx (Phase 3) — passes isSecure to ChatPanel for padlock display
  */
 
-import UserList from './UserList.jsx';
+import UserList  from './UserList.jsx';
 import ChatPanel from './ChatPanel.jsx';
 
 export default function MainLayout({
-  users,
-  messages,
-  myIp,
-  mySessionId,
-  voice,
-  onSendMessage,
-  onDisconnect,
+  users, messages, myIp, mySessionId,
+  isSecure, voice,
+  onSendMessage, onDisconnect,
 }) {
   return (
     <div className="main-layout">
@@ -27,6 +22,7 @@ export default function MainLayout({
       <ChatPanel
         messages={messages}
         myIp={myIp}
+        isSecure={isSecure}
         onSendMessage={onSendMessage}
       />
     </div>

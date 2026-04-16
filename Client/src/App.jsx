@@ -1,28 +1,24 @@
 /**
- * App.jsx — Root component (Phase 2)
+ * App.jsx — Root component (Phase 3)
  *
- * Changes from Phase 1:
- *  - Users are now { sessionId, ip, inVoice } objects (not plain IP strings)
- *  - mySessionId state added
- *  - useVoice hook wired up; signaling messages routed to it
- *  - sendSignal helper (sends any WebSocket message — used by voice hook)
+ * Changes from Phase 2:
+ *  - WebSocket URL uses wss:// instead of ws://
+ *  - Before opening the socket, calls window.electronAPI.confirmSelfSignedCert()
+ *    so Electron's certificate verify proc has the fingerprint cached in time
+ *  - isSecure state tracks whether we connected over wss:// (always true now,
+ *    kept as state so Phase 6 can toggle for plain ws:// fallback)
+ *  - Passes isSecure down to MainLayout for the padlock indicator
  */
 
 import { useState, useRef, useCallback } from 'react';
 import ConnectScreen from './components/ConnectScreen.jsx';
-import MainLayout from './components/MainLayout.jsx';
-import { useVoice } from './hooks/useVoice.js';
+import MainLayout    from './components/MainLayout.jsx';
+import { useVoice }  from './hooks/useVoice.js';
 
-const WS_READY = { CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3 };
-
-// Message types handled by the voice hook (routed away from main switch)
+const WS_READY    = { CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3 };
 const VOICE_TYPES = new Set([
-  'voice_joined_ack',
-  'user_voice_joined',
-  'user_voice_left',
-  'offer',
-  'answer',
-  'ice-candidate',
+  'voice_joined_ack', 'user_voice_joined', 'user_voice_left',
+  'offer', 'answer', 'ice-candidate',
 ]);
 
 export default function App() {
@@ -30,17 +26,17 @@ export default function App() {
   const [screen,       setScreen]       = useState('connect');
   const [connectError, setConnectError] = useState('');
   const [isConnecting, setIsConnecting] = useState(false);
+  const [isSecure,     setIsSecure]     = useState(false); // wss:// connected
 
   // ── Chat / presence state ──────────────────────────────────────────────────
-  const [users,    setUsers]    = useState([]); // [{ sessionId, ip, inVoice }]
-  const [messages, setMessages] = useState([]);
-  const [myIp,     setMyIp]     = useState('');
+  const [users,       setUsers]       = useState([]);
+  const [messages,    setMessages]    = useState([]);
+  const [myIp,        setMyIp]        = useState('');
   const [mySessionId, setMySessionId] = useState('');
 
-  // ── WebSocket ref ──────────────────────────────────────────────────────────
   const wsRef = useRef(null);
 
-  // ── sendSignal — stable callback used by useVoice ─────────────────────────
+  // ── sendSignal — stable, used by useVoice ──────────────────────────────────
   const sendSignal = useCallback((payload) => {
     const ws = wsRef.current;
     if (ws && ws.readyState === WS_READY.OPEN) {
@@ -48,7 +44,6 @@ export default function App() {
     }
   }, []);
 
-  // ── Voice hook ─────────────────────────────────────────────────────────────
   const voice = useVoice(sendSignal);
 
   // ── Helpers ────────────────────────────────────────────────────────────────
@@ -62,7 +57,7 @@ export default function App() {
 
   // ── Connect ────────────────────────────────────────────────────────────────
 
-  const connect = useCallback(({ serverIp, port, password }) => {
+  const connect = useCallback(async ({ serverIp, port, password }) => {
     setConnectError('');
     setIsConnecting(true);
 
@@ -71,7 +66,24 @@ export default function App() {
       wsRef.current.close();
     }
 
-    const ws = new WebSocket(`ws://${serverIp}:${port}`);
+    // ── Phase 3: show self-signed cert warning before opening socket ──────
+    // This gives Electron's cert verify proc time to cache the decision.
+    // window.electronAPI is injected by preload.js via contextBridge.
+    if (window.electronAPI?.confirmSelfSignedCert) {
+      try {
+        const accepted = await window.electronAPI.confirmSelfSignedCert(serverIp);
+        if (!accepted) {
+          setConnectError('Connection cancelled — certificate not trusted.');
+          setIsConnecting(false);
+          return;
+        }
+      } catch {
+        // If IPC fails (e.g. running in browser dev), continue anyway
+      }
+    }
+
+    const url = `wss://${serverIp}:${port}`;
+    const ws  = new WebSocket(url);
     wsRef.current = ws;
 
     const connectTimeout = setTimeout(() => {
@@ -80,26 +92,21 @@ export default function App() {
         setConnectError('Connection timed out. Is the server running?');
         setIsConnecting(false);
       }
-    }, 8000);
+    }, 10000); // 10s — TLS handshake takes a little longer than plain WS
 
     ws.onopen = () => {
       clearTimeout(connectTimeout);
+      setIsSecure(true);
       ws.send(JSON.stringify({ type: 'auth', password }));
     };
 
     ws.onmessage = (event) => {
       let msg;
-      try { msg = JSON.parse(event.data); }
-      catch { return; }
+      try { msg = JSON.parse(event.data); } catch { return; }
 
-      // Route voice/signaling messages to the voice hook
-      if (VOICE_TYPES.has(msg.type)) {
-        voice.handleSignal(msg);
-        return;
-      }
+      if (VOICE_TYPES.has(msg.type)) { voice.handleSignal(msg); return; }
 
       switch (msg.type) {
-
         case 'auth_success':
           setMyIp(msg.yourIp);
           setMySessionId(msg.yourSessionId);
@@ -117,12 +124,10 @@ export default function App() {
           setMessages(msg.messages.map(m => ({ ...m, _id: `hist-${m.id}` })));
           break;
 
-        // user_list now sends [{ sessionId, ip, inVoice }]
         case 'user_list':
           setUsers(msg.users);
           break;
 
-        // user_joined now includes sessionId and inVoice
         case 'user_joined':
           setUsers(prev => {
             if (prev.find(u => u.sessionId === msg.sessionId)) return prev;
@@ -137,7 +142,6 @@ export default function App() {
           addSystemMessage(`${msg.ip} left the server`);
           break;
 
-        // Voice state change for a specific user (update their inVoice flag)
         case 'user_voice_state':
           setUsers(prev => prev.map(u =>
             u.sessionId === msg.sessionId ? { ...u, inVoice: msg.inVoice } : u
@@ -155,17 +159,16 @@ export default function App() {
           console.warn('[Server error]', msg.message);
           break;
 
-        default:
-          break;
+        default: break;
       }
     };
 
     ws.onclose = (event) => {
       clearTimeout(connectTimeout);
       setIsConnecting(false);
+      setIsSecure(false);
       setScreen(prev => {
         if (prev === 'chat') {
-          // Clean up voice if we were in it
           if (voice.inVoice) voice.leaveVoice();
           setConnectError(`Disconnected from server (code ${event.code}).`);
           setUsers([]);
@@ -180,12 +183,16 @@ export default function App() {
 
     ws.onerror = () => {
       clearTimeout(connectTimeout);
-      setConnectError('Could not reach the server. Check the IP, port, and that the server is running.');
       setIsConnecting(false);
+      setConnectError(
+        'Could not reach the server.\n' +
+        'Check the IP, port, and that the server is running.\n' +
+        'If this is a new server, it may still be generating its certificate.'
+      );
     };
   }, [voice]);
 
-  // ── Send chat message ──────────────────────────────────────────────────────
+  // ── Send chat ──────────────────────────────────────────────────────────────
 
   const sendMessage = useCallback((content) => {
     sendSignal({ type: 'chat', content });
@@ -196,12 +203,10 @@ export default function App() {
   const disconnect = useCallback(() => {
     if (voice.inVoice) voice.leaveVoice();
     const ws = wsRef.current;
-    if (ws) {
-      ws.onclose = null;
-      ws.close(1000, 'User disconnected');
-    }
+    if (ws) { ws.onclose = null; ws.close(1000, 'User disconnected'); }
     setScreen('connect');
     setConnectError('');
+    setIsSecure(false);
     setUsers([]);
     setMessages([]);
     setMyIp('');
@@ -226,6 +231,7 @@ export default function App() {
       messages={messages}
       myIp={myIp}
       mySessionId={mySessionId}
+      isSecure={isSecure}
       voice={voice}
       onSendMessage={sendMessage}
       onDisconnect={disconnect}

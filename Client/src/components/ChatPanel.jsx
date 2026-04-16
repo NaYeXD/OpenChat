@@ -1,6 +1,5 @@
 /**
- * ChatPanel.jsx — Main chat area.
- * Uses senderId (session ID) to identify own messages.
+ * ChatPanel.jsx (Phase 3) — padlock icon in header when isSecure=true
  */
 
 import { useState, useEffect, useRef } from 'react';
@@ -10,12 +9,15 @@ function formatTime(ts) {
 }
 
 function formatDate(ts) {
-  return new Date(ts).toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' });
+  return new Date(ts).toLocaleDateString([], {
+    weekday: 'long', month: 'short', day: 'numeric',
+  });
 }
 
 function groupMessages(messages) {
-  const groups = [];
-  let lastDate = null;
+  const groups  = [];
+  let lastDate  = null;
+
   for (const msg of messages) {
     const dateStr = new Date(msg.timestamp).toDateString();
     if (dateStr !== lastDate) {
@@ -27,7 +29,7 @@ function groupMessages(messages) {
   return groups;
 }
 
-export default function ChatPanel({ messages, myId, myIp, onSendMessage }) {
+export default function ChatPanel({ messages, myIp, isSecure, onSendMessage }) {
   const [input, setInput] = useState('');
   const endRef   = useRef(null);
   const inputRef = useRef(null);
@@ -45,16 +47,29 @@ export default function ChatPanel({ messages, myId, myIp, onSendMessage }) {
     inputRef.current?.focus();
   }
 
+  function handleKeyDown(e) {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(e); }
+  }
+
   const grouped = groupMessages(messages);
 
   return (
     <div className="chat-panel">
+      {/* ── Header ── */}
       <div className="cp-header">
         <span className="cp-hash">#</span>
         <span className="cp-channel">general</span>
         <span className="cp-desc">Server chat — messages are saved on the server</span>
+
+        {/* Padlock — Phase 3 */}
+        <div className={`cp-tls-badge ${isSecure ? 'is-secure' : 'is-insecure'}`}
+             title={isSecure ? 'Connection is encrypted (wss://)' : 'Not encrypted'}>
+          <span className="cp-tls-icon">{isSecure ? '🔒' : '⚠️'}</span>
+          <span className="cp-tls-label">{isSecure ? 'Encrypted' : 'Unencrypted'}</span>
+        </div>
       </div>
 
+      {/* ── Messages ── */}
       <div className="cp-messages" role="log" aria-live="polite">
         {messages.length === 0 && (
           <div className="cp-welcome">
@@ -73,7 +88,6 @@ export default function ChatPanel({ messages, myId, myIp, onSendMessage }) {
               </div>
             );
           }
-
           if (item.type === 'system') {
             return (
               <div key={item._id} className="cp-system-msg">
@@ -82,10 +96,7 @@ export default function ChatPanel({ messages, myId, myIp, onSendMessage }) {
               </div>
             );
           }
-
-          // For history messages (from DB) there's no senderId, so fall back to IP match
-          const isMe = item.senderId ? item.senderId === myId : item.sender_ip === myIp;
-
+          const isMe = item.sender_ip === myIp;
           return (
             <div key={item._id} className={`cp-msg ${isMe ? 'cp-msg--me' : ''}`}>
               <div className="cp-msg-avatar" title={item.sender_ip}>
@@ -101,10 +112,10 @@ export default function ChatPanel({ messages, myId, myIp, onSendMessage }) {
             </div>
           );
         })}
-
         <div ref={endRef} />
       </div>
 
+      {/* ── Input ── */}
       <form className="cp-input-area" onSubmit={handleSend}>
         <input
           ref={inputRef}
@@ -113,6 +124,7 @@ export default function ChatPanel({ messages, myId, myIp, onSendMessage }) {
           placeholder="Message #general"
           value={input}
           onChange={e => setInput(e.target.value)}
+          onKeyDown={handleKeyDown}
           maxLength={2000}
           autoComplete="off"
           spellCheck
