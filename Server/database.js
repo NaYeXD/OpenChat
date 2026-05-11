@@ -1,83 +1,151 @@
 /**
- * database.js — JSON file-based message store for OpenChat Server
+ * database.js — SQLite database layer (Phase 4)
  *
- * Replaces better-sqlite3 with a plain JSON file so no native compilation
- * (node-gyp / Visual Studio / Windows SDK) is required.
+ * Uses node:sqlite — built into Node.js v22.5+ and stable in Node v23+.
+ * No native compilation or npm install required (unlike better-sqlite3).
  *
- * Data is kept in memory and flushed to disk after every write.
- * File: openchat-messages.json  (created automatically on first run)
- *
- * Upgrade path: In Phase 4 this will be replaced with a proper SQLite/
- * PostgreSQL database alongside user accounts.
+ * Tables:
+ *   users       — accounts with bcrypt-hashed passwords and roles
+ *   messages    — chat history linked to user accounts
+ *   audit_log   — admin action history
+ *   banned_users — permanently banned accounts
  */
 
-const fs   = require('fs');
+const { DatabaseSync } = require('node:sqlite');
 const path = require('path');
 
-const DB_FILE    = path.join(__dirname, 'openchat-messages.json');
-const MAX_STORED = 500; // cap file size — keep only the most recent 500 messages
+const db = new DatabaseSync(path.join(__dirname, 'openchat.db'));
 
-// ── Load existing messages from disk (or start fresh) ─────────────────────────
+// ── Optimisations ─────────────────────────────────────────────────────────────
+db.exec(`PRAGMA journal_mode = WAL`);
+db.exec(`PRAGMA foreign_keys = ON`);
 
-let messages = [];
+// ── Schema ────────────────────────────────────────────────────────────────────
+db.exec(`
+  CREATE TABLE IF NOT EXISTS users (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    username      TEXT    UNIQUE NOT NULL COLLATE NOCASE,
+    password_hash TEXT    NOT NULL,
+    role          TEXT    NOT NULL DEFAULT 'user',
+    created_at    INTEGER NOT NULL,
+    last_seen     INTEGER
+  );
 
-try {
-  const raw = fs.readFileSync(DB_FILE, 'utf8');
-  messages = JSON.parse(raw);
-  if (!Array.isArray(messages)) messages = [];
-  console.log(`[DB] Loaded ${messages.length} messages from ${DB_FILE}`);
-} catch (err) {
-  if (err.code === 'ENOENT') {
-    console.log('[DB] No existing message file found — starting fresh.');
-  } else {
-    console.error('[DB] Warning: could not read message file:', err.message);
-    messages = [];
-  }
+  CREATE TABLE IF NOT EXISTS messages (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id   INTEGER NOT NULL,
+    username  TEXT    NOT NULL,
+    content   TEXT    NOT NULL,
+    timestamp INTEGER NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS audit_log (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    action       TEXT    NOT NULL,
+    performed_by TEXT    NOT NULL,
+    target       TEXT,
+    detail       TEXT,
+    timestamp    INTEGER NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS banned_users (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    username  TEXT    UNIQUE NOT NULL COLLATE NOCASE,
+    banned_by TEXT    NOT NULL,
+    reason    TEXT,
+    banned_at INTEGER NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_messages_ts   ON messages   (timestamp DESC);
+  CREATE INDEX IF NOT EXISTS idx_audit_ts      ON audit_log  (timestamp DESC);
+`);
+
+// ── Prepared statements ───────────────────────────────────────────────────────
+
+const stmts = {
+  // Users
+  insertUser:       db.prepare('INSERT INTO users (username, password_hash, role, created_at) VALUES (?, ?, ?, ?)'),
+  findUserByName:   db.prepare('SELECT * FROM users WHERE username = ? COLLATE NOCASE'),
+  findUserById:     db.prepare('SELECT * FROM users WHERE id = ?'),
+  countUsers:       db.prepare('SELECT COUNT(*) as n FROM users'),
+  updateLastSeen:   db.prepare('UPDATE users SET last_seen = ? WHERE id = ?'),
+  promoteToAdmin:   db.prepare("UPDATE users SET role = 'admin' WHERE username = ? COLLATE NOCASE"),
+
+  // Messages
+  insertMessage:    db.prepare('INSERT INTO messages (user_id, username, content, timestamp) VALUES (?, ?, ?, ?)'),
+  recentMessages:   db.prepare('SELECT * FROM messages ORDER BY timestamp DESC LIMIT 50'),
+
+  // Audit log
+  insertAudit:      db.prepare('INSERT INTO audit_log (action, performed_by, target, detail, timestamp) VALUES (?, ?, ?, ?, ?)'),
+  recentAudit:      db.prepare('SELECT * FROM audit_log ORDER BY timestamp DESC LIMIT 100'),
+
+  // Bans
+  insertBan:        db.prepare('INSERT OR REPLACE INTO banned_users (username, banned_by, reason, banned_at) VALUES (?, ?, ?, ?)'),
+  deleteBan:        db.prepare('DELETE FROM banned_users WHERE username = ? COLLATE NOCASE'),
+  findBan:          db.prepare('SELECT * FROM banned_users WHERE username = ? COLLATE NOCASE'),
+};
+
+// ── Users ─────────────────────────────────────────────────────────────────────
+
+function createUser(username, passwordHash, role = 'user') {
+  const result = stmts.insertUser.run(username, passwordHash, role, Date.now());
+  return result.lastInsertRowid;
 }
 
-// ── Persist to disk ────────────────────────────────────────────────────────────
-
-function flush() {
-  try {
-    fs.writeFileSync(DB_FILE, JSON.stringify(messages, null, 2), 'utf8');
-  } catch (err) {
-    console.error('[DB] Warning: could not write message file:', err.message);
-  }
+function findUser(username) {
+  return stmts.findUserByName.get(username) ?? null;
 }
 
-// ── Exported API ───────────────────────────────────────────────────────────────
-
-/**
- * Save a chat message.
- * @param {string} senderIp
- * @param {string} content
- * @returns {{ id, sender_ip, content, timestamp }}
- */
-function saveMessage(senderIp, content) {
-  const record = {
-    id:        messages.length + 1,
-    sender_ip: senderIp,
-    content,
-    timestamp: Date.now(),
-  };
-
-  messages.push(record);
-
-  // Trim to cap
-  if (messages.length > MAX_STORED) {
-    messages = messages.slice(messages.length - MAX_STORED);
-  }
-
-  flush();
-  return record;
+function userCount() {
+  return stmts.countUsers.get().n;
 }
 
-/**
- * Return the most recent 50 messages in chronological order (oldest first).
- * @returns {Array}
- */
+function touchLastSeen(userId) {
+  stmts.updateLastSeen.run(Date.now(), userId);
+}
+
+function promoteToAdmin(username) {
+  stmts.promoteToAdmin.run(username);
+}
+
+// ── Messages ──────────────────────────────────────────────────────────────────
+
+function saveMessage(userId, username, content) {
+  stmts.insertMessage.run(userId, username, content, Date.now());
+}
+
 function getRecentMessages() {
-  return messages.slice(-50);
+  return stmts.recentMessages.all().reverse(); // oldest-first
 }
 
-module.exports = { saveMessage, getRecentMessages };
+// ── Audit log ─────────────────────────────────────────────────────────────────
+
+function addAuditEntry(action, performedBy, target = null, detail = null) {
+  stmts.insertAudit.run(action, performedBy, target, detail, Date.now());
+}
+
+function getAuditLog() {
+  return stmts.recentAudit.all();
+}
+
+// ── Bans ──────────────────────────────────────────────────────────────────────
+
+function banUser(username, bannedBy, reason = '') {
+  stmts.insertBan.run(username, bannedBy, reason, Date.now());
+}
+
+function unbanUser(username) {
+  stmts.deleteBan.run(username);
+}
+
+function isBanned(username) {
+  return !!stmts.findBan.get(username);
+}
+
+module.exports = {
+  createUser, findUser, userCount, touchLastSeen, promoteToAdmin,
+  saveMessage, getRecentMessages,
+  addAuditEntry, getAuditLog,
+  banUser, unbanUser, isBanned,
+};

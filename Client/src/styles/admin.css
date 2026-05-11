@@ -1,0 +1,438 @@
+/* ─────────────────────────────────────────────────────────────────────────
+   PHASE 4 — Accounts, admin panel, auth tabs
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* ── Connect screen: field-row (side-by-side IP + Port) ─────────────────── */
+
+.field-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+}
+
+/* ── Auth mode tabs ──────────────────────────────────────────────────────── */
+
+.auth-tabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.auth-tab {
+  flex: 1;
+  padding: 8px 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  background: var(--bg-raised);
+  border: none;
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+}
+
+.auth-tab:hover:not(.is-active) {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+
+.auth-tab.is-active {
+  background: var(--accent-muted);
+  color: var(--accent);
+}
+
+/* ── Footer link (switch mode) ───────────────────────────────────────────── */
+
+.footer-link {
+  color: var(--accent);
+  font-size: 11px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  background: none;
+  border: none;
+}
+
+/* ── Admin user badge in user list ───────────────────────────────────────── */
+
+.ul-admin-badge {
+  font-size: 11px;
+  color: var(--yellow);
+  flex-shrink: 0;
+}
+
+.ul-user--admin .ul-ip {
+  color: var(--text-primary);
+}
+
+/* ── Chat panel: admin button + feedback ─────────────────────────────────── */
+
+.cp-admin-btn {
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  background: rgba(251, 191, 36, 0.1);
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  color: var(--yellow);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition: background var(--transition), box-shadow var(--transition);
+  flex-shrink: 0;
+}
+
+.cp-admin-btn:hover {
+  background: rgba(251, 191, 36, 0.2);
+  box-shadow: 0 0 8px rgba(251, 191, 36, 0.2);
+}
+
+.cp-admin-feedback {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: var(--radius-sm);
+  animation: feedback-in 200ms ease;
+  flex-shrink: 0;
+}
+
+.cp-admin-feedback.is-success {
+  background: var(--accent-muted);
+  border: 1px solid rgba(74, 222, 128, 0.3);
+  color: var(--accent);
+}
+
+.cp-admin-feedback.is-error {
+  background: rgba(248, 113, 113, 0.1);
+  border: 1px solid rgba(248, 113, 113, 0.3);
+  color: var(--red);
+}
+
+@keyframes feedback-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Admin crown on messages ─────────────────────────────────────────────── */
+
+.cp-msg-sender.is-admin { color: var(--yellow); }
+
+.cp-admin-crown {
+  font-size: 10px;
+  margin-left: 4px;
+  opacity: 0.8;
+}
+
+/* ── Chat area wrapper (for panel overlay positioning) ───────────────────── */
+
+.chat-area {
+  flex: 1;
+  display: flex;
+  position: relative;
+  min-width: 0;
+}
+
+.chat-area .chat-panel {
+  flex: 1;
+}
+
+/* ── Admin Panel ─────────────────────────────────────────────────────────── */
+
+.admin-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 420px;
+  max-width: 100%;
+  background: var(--bg-panel);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  z-index: 100;
+  animation: ap-slide-in 200ms cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: -8px 0 32px rgba(0,0,0,0.4);
+}
+
+@keyframes ap-slide-in {
+  from { transform: translateX(40px); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+
+.ap-header {
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.ap-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.ap-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--yellow);
+  letter-spacing: 0.06em;
+}
+
+.ap-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ap-btn {
+  padding: 5px 10px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+}
+
+.ap-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+.ap-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.ap-close {
+  padding: 4px 8px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 14px;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: color var(--transition), background var(--transition);
+}
+
+.ap-close:hover { color: var(--red); background: rgba(248,113,113,0.1); }
+
+.ap-feedback {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  animation: feedback-in 200ms ease;
+}
+
+.ap-feedback.is-success { background: var(--accent-muted); color: var(--accent); border: 1px solid rgba(74,222,128,0.3); }
+.ap-feedback.is-error   { background: rgba(248,113,113,0.1); color: var(--red); border: 1px solid rgba(248,113,113,0.3); }
+
+/* Unban form */
+.ap-unban-form {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.ap-section-label {
+  display: block;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.ap-unban-row {
+  display: flex;
+  gap: 8px;
+}
+
+.ap-input, .ap-search {
+  flex: 1;
+  padding: 7px 10px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-family: var(--font-mono);
+  outline: none;
+  transition: border-color var(--transition);
+}
+
+.ap-input:focus, .ap-search:focus { border-color: var(--accent); }
+
+.ap-btn--unban {
+  background: rgba(74,222,128,0.1);
+  border-color: rgba(74,222,128,0.3);
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.ap-btn--unban:hover { background: rgba(74,222,128,0.2); }
+
+/* Audit log */
+.ap-log-section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 10px 16px 0;
+}
+
+.ap-log-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-shrink: 0;
+}
+
+.ap-search {
+  flex: 0 0 140px;
+}
+
+.ap-log-list {
+  flex: 1;
+  overflow-y: auto;
+  padding-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ap-log-list::-webkit-scrollbar { width: 4px; }
+.ap-log-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+.ap-empty {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-style: italic;
+  padding: 12px 0;
+  text-align: center;
+}
+
+.ap-entry {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  transition: background var(--transition);
+}
+
+.ap-entry:hover { background: var(--bg-hover); }
+
+.ap-entry-icon { font-size: 14px; flex-shrink: 0; margin-top: 1px; }
+
+.ap-entry-body { flex: 1; min-width: 0; }
+
+.ap-entry-main {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+
+.ap-entry-action {
+  font-weight: 700;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+
+.ap-entry-by    { color: var(--text-secondary); font-weight: 600; }
+.ap-entry-arrow { color: var(--text-muted); }
+.ap-entry-target { color: var(--text-primary); font-weight: 600; }
+
+.ap-entry-detail {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+  font-style: italic;
+}
+
+.ap-entry-time {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* ── Context menu: admin actions ─────────────────────────────────────────── */
+
+.ctx-admin-section {
+  padding: 8px 14px 10px;
+}
+
+.ctx-admin-label {
+  display: block;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.ctx-admin-buttons {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.ctx-admin-btn {
+  flex: 1;
+  padding: 7px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--transition), box-shadow var(--transition);
+  border: 1px solid;
+  text-align: center;
+}
+
+.ctx-admin-btn--kick {
+  background: rgba(251,191,36,0.08);
+  border-color: rgba(251,191,36,0.3);
+  color: var(--yellow);
+}
+
+.ctx-admin-btn--kick:hover {
+  background: rgba(251,191,36,0.18);
+}
+
+.ctx-admin-btn--ban {
+  background: rgba(248,113,113,0.08);
+  border-color: rgba(248,113,113,0.3);
+  color: var(--red);
+}
+
+.ctx-admin-btn--ban:hover { background: rgba(248,113,113,0.18); }
+
+.ctx-ban-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ctx-ban-input {
+  width: 100%;
+  padding: 7px 10px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-family: var(--font-mono);
+  outline: none;
+}
+
+.ctx-ban-input:focus { border-color: var(--red); }

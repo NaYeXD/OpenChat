@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=OpenChat
+Exec=AppRun --no-sandbox %U
+Terminal=false
+Type=Application
+Icon=openchat-client
+StartupWMClass=OpenChat
+X-AppImage-Version=1.0.0
+Comment=OpenChat Client — open-source voice & text chat
+Categories=Utility;

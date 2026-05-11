@@ -1,13 +1,18 @@
 /**
- * App.jsx — Root component (Phase 3)
+ * App.jsx — Root component (Phase 4)
  *
- * Changes from Phase 2:
- *  - WebSocket URL uses wss:// instead of ws://
- *  - Before opening the socket, calls window.electronAPI.confirmSelfSignedCert()
- *    so Electron's certificate verify proc has the fingerprint cached in time
- *  - isSecure state tracks whether we connected over wss:// (always true now,
- *    kept as state so Phase 6 can toggle for plain ws:// fallback)
- *  - Passes isSecure down to MainLayout for the padlock indicator
+ * Auth flow:
+ *   1. ConnectScreen collects server IP, port, username, password + mode (login/register)
+ *   2. App makes HTTPS POST to /api/login or /api/register — receives { token, username, role }
+ *   3. JWT stored in memory (useState — never written to disk)
+ *   4. WSS opened, { type: "auth", token } sent as first message
+ *   5. Server verifies JWT, returns auth_success with sessionId
+ *
+ * New state:
+ *   - myUsername, myRole    — from JWT payload
+ *   - isAdmin               — derived from myRole
+ *   - showAdminPanel        — toggle admin log view
+ *   - adminMessages         — server feedback for kick/ban/unban
  */
 
 import { useState, useRef, useCallback } from 'react';
@@ -22,26 +27,35 @@ const VOICE_TYPES = new Set([
 ]);
 
 export default function App() {
-  // ── Connection state ───────────────────────────────────────────────────────
+  // ── Connection ─────────────────────────────────────────────────────────────
   const [screen,       setScreen]       = useState('connect');
   const [connectError, setConnectError] = useState('');
   const [isConnecting, setIsConnecting] = useState(false);
-  const [isSecure,     setIsSecure]     = useState(false); // wss:// connected
+  const [isSecure,     setIsSecure]     = useState(false);
 
-  // ── Chat / presence state ──────────────────────────────────────────────────
-  const [users,       setUsers]       = useState([]);
-  const [messages,    setMessages]    = useState([]);
-  const [myIp,        setMyIp]        = useState('');
-  const [mySessionId, setMySessionId] = useState('');
+  // ── Identity (from JWT) ────────────────────────────────────────────────────
+  const [myUsername,    setMyUsername]    = useState('');
+  const [myRole,        setMyRole]        = useState('user');
+  const [mySessionId,   setMySessionId]   = useState('');
 
-  const wsRef = useRef(null);
+  // ── Chat / presence ────────────────────────────────────────────────────────
+  const [users,    setUsers]    = useState([]);
+  const [messages, setMessages] = useState([]);
 
-  // ── sendSignal — stable, used by useVoice ──────────────────────────────────
+  // ── Admin panel ────────────────────────────────────────────────────────────
+  const [showAdminPanel, setShowAdminPanel] = useState(false);
+  const [auditLog,       setAuditLog]       = useState([]);
+  const [adminFeedback,  setAdminFeedback]  = useState(''); // transient status message
+
+  // ── Server info (needed for reconnect) ────────────────────────────────────
+  const serverRef = useRef({ ip: '', port: '' });
+  const tokenRef  = useRef(''); // JWT in memory only
+  const wsRef     = useRef(null);
+
+  // ── sendSignal ─────────────────────────────────────────────────────────────
   const sendSignal = useCallback((payload) => {
     const ws = wsRef.current;
-    if (ws && ws.readyState === WS_READY.OPEN) {
-      ws.send(JSON.stringify(payload));
-    }
+    if (ws && ws.readyState === WS_READY.OPEN) ws.send(JSON.stringify(payload));
   }, []);
 
   const voice = useVoice(sendSignal);
@@ -55,20 +69,18 @@ export default function App() {
     ]);
   }
 
-  // ── Connect ────────────────────────────────────────────────────────────────
+  function flashAdminFeedback(msg) {
+    setAdminFeedback(msg);
+    setTimeout(() => setAdminFeedback(''), 4000);
+  }
 
-  const connect = useCallback(async ({ serverIp, port, password }) => {
+  // ── Step 1: HTTP login/register ────────────────────────────────────────────
+
+  const connect = useCallback(async ({ serverIp, port, username, password, mode }) => {
     setConnectError('');
     setIsConnecting(true);
 
-    if (wsRef.current) {
-      wsRef.current.onclose = null;
-      wsRef.current.close();
-    }
-
-    // ── Phase 3: show self-signed cert warning before opening socket ──────
-    // This gives Electron's cert verify proc time to cache the decision.
-    // window.electronAPI is injected by preload.js via contextBridge.
+    // Show cert warning before ANY HTTPS request to this server
     if (window.electronAPI?.confirmSelfSignedCert) {
       try {
         const accepted = await window.electronAPI.confirmSelfSignedCert(serverIp);
@@ -77,27 +89,70 @@ export default function App() {
           setIsConnecting(false);
           return;
         }
-      } catch {
-        // If IPC fails (e.g. running in browser dev), continue anyway
-      }
+      } catch { /* continue if IPC unavailable (browser dev mode) */ }
     }
 
-    const url = `wss://${serverIp}:${port}`;
-    const ws  = new WebSocket(url);
+    // HTTP auth
+    const endpoint = mode === 'register' ? '/api/register' : '/api/login';
+    let token, resolvedUsername, resolvedRole;
+
+    try {
+      const res = await fetch(`https://${serverIp}:${port}${endpoint}`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ username: username.trim(), password }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setConnectError(data.error || `Server error (${res.status})`);
+        setIsConnecting(false);
+        return;
+      }
+
+      token            = data.token;
+      resolvedUsername = data.username;
+      resolvedRole     = data.role;
+    } catch (err) {
+      setConnectError(
+        'Could not reach the server HTTP API.\n' +
+        'Check the IP and port, and confirm the server is running.\n' +
+        `(${err.message})`
+      );
+      setIsConnecting(false);
+      return;
+    }
+
+    // Step 2: open WSS with JWT
+    tokenRef.current  = token;
+    serverRef.current = { ip: serverIp, port };
+    openWebSocket({ serverIp, port, token, resolvedUsername, resolvedRole });
+  }, [voice]);
+
+  // ── Step 2: open WSS ───────────────────────────────────────────────────────
+
+  function openWebSocket({ serverIp, port, token, resolvedUsername, resolvedRole }) {
+    if (wsRef.current) {
+      wsRef.current.onclose = null;
+      wsRef.current.close();
+    }
+
+    const ws = new WebSocket(`wss://${serverIp}:${port}`);
     wsRef.current = ws;
 
-    const connectTimeout = setTimeout(() => {
+    const timeout = setTimeout(() => {
       if (ws.readyState !== WS_READY.OPEN) {
         ws.close();
-        setConnectError('Connection timed out. Is the server running?');
+        setConnectError('WebSocket connection timed out.');
         setIsConnecting(false);
       }
-    }, 10000); // 10s — TLS handshake takes a little longer than plain WS
+    }, 10_000);
 
     ws.onopen = () => {
-      clearTimeout(connectTimeout);
+      clearTimeout(timeout);
       setIsSecure(true);
-      ws.send(JSON.stringify({ type: 'auth', password }));
+      ws.send(JSON.stringify({ type: 'auth', token }));
     };
 
     ws.onmessage = (event) => {
@@ -107,15 +162,17 @@ export default function App() {
       if (VOICE_TYPES.has(msg.type)) { voice.handleSignal(msg); return; }
 
       switch (msg.type) {
+
         case 'auth_success':
-          setMyIp(msg.yourIp);
-          setMySessionId(msg.yourSessionId);
+          setMyUsername(resolvedUsername);
+          setMyRole(resolvedRole);
+          setMySessionId(msg.sessionId);
           setIsConnecting(false);
           setScreen('chat');
           break;
 
         case 'auth_failed':
-          setConnectError(msg.message || 'Incorrect password.');
+          setConnectError(msg.message || 'Authentication failed. Please log in again.');
           setIsConnecting(false);
           ws.close();
           break;
@@ -131,15 +188,15 @@ export default function App() {
         case 'user_joined':
           setUsers(prev => {
             if (prev.find(u => u.sessionId === msg.sessionId)) return prev;
-            return [...prev, { sessionId: msg.sessionId, ip: msg.ip, inVoice: false }];
+            return [...prev, { sessionId: msg.sessionId, username: msg.username, role: msg.role, inVoice: false }];
           });
-          addSystemMessage(`${msg.ip} joined the server`);
+          addSystemMessage(`${msg.username} joined the server`);
           break;
 
         case 'user_left':
           setUsers(prev => prev.filter(u => u.sessionId !== msg.sessionId));
           voice.handleUserLeft(msg.sessionId);
-          addSystemMessage(`${msg.ip} left the server`);
+          addSystemMessage(`${msg.username} left the server`);
           break;
 
         case 'user_voice_state':
@@ -151,12 +208,35 @@ export default function App() {
         case 'chat':
           setMessages(prev => [
             ...prev,
-            { ...msg, _id: `chat-${msg.timestamp}-${msg.sender_ip}` },
+            { ...msg, _id: `chat-${msg.timestamp}-${msg.username}` },
           ]);
           break;
 
+        // Admin feedback
+        case 'admin_success':
+          flashAdminFeedback(`✓ ${msg.message}`);
+          break;
+
+        case 'admin_error':
+          flashAdminFeedback(`✗ ${msg.message}`);
+          break;
+
+        case 'audit_log':
+          setAuditLog(msg.entries);
+          setShowAdminPanel(true);
+          break;
+
+        // We got kicked or banned
+        case 'kicked':
+          addSystemMessage(`You were kicked: ${msg.reason}`);
+          break;
+
+        case 'banned':
+          setConnectError(`Your account has been banned: ${msg.reason}`);
+          break;
+
         case 'error':
-          console.warn('[Server error]', msg.message);
+          console.warn('[Server]', msg.message);
           break;
 
         default: break;
@@ -164,17 +244,14 @@ export default function App() {
     };
 
     ws.onclose = (event) => {
-      clearTimeout(connectTimeout);
+      clearTimeout(timeout);
       setIsConnecting(false);
       setIsSecure(false);
       setScreen(prev => {
         if (prev === 'chat') {
           if (voice.inVoice) voice.leaveVoice();
           setConnectError(`Disconnected from server (code ${event.code}).`);
-          setUsers([]);
-          setMessages([]);
-          setMyIp('');
-          setMySessionId('');
+          setUsers([]); setMessages([]); setMyUsername(''); setMyRole('user'); setMySessionId('');
           return 'connect';
         }
         return prev;
@@ -182,15 +259,29 @@ export default function App() {
     };
 
     ws.onerror = () => {
-      clearTimeout(connectTimeout);
+      clearTimeout(timeout);
       setIsConnecting(false);
-      setConnectError(
-        'Could not reach the server.\n' +
-        'Check the IP, port, and that the server is running.\n' +
-        'If this is a new server, it may still be generating its certificate.'
-      );
+      setConnectError('WebSocket connection failed. Check the server is running.');
     };
-  }, [voice]);
+  }
+
+  // ── Admin actions ──────────────────────────────────────────────────────────
+
+  const adminKick = useCallback((targetUsername, reason = '') => {
+    sendSignal({ type: 'admin_kick', targetUsername, reason });
+  }, [sendSignal]);
+
+  const adminBan = useCallback((targetUsername, reason = '') => {
+    sendSignal({ type: 'admin_ban', targetUsername, reason });
+  }, [sendSignal]);
+
+  const adminUnban = useCallback((targetUsername) => {
+    sendSignal({ type: 'admin_unban', targetUsername });
+  }, [sendSignal]);
+
+  const requestAuditLog = useCallback(() => {
+    sendSignal({ type: 'admin_get_audit_log' });
+  }, [sendSignal]);
 
   // ── Send chat ──────────────────────────────────────────────────────────────
 
@@ -204,37 +295,43 @@ export default function App() {
     if (voice.inVoice) voice.leaveVoice();
     const ws = wsRef.current;
     if (ws) { ws.onclose = null; ws.close(1000, 'User disconnected'); }
-    setScreen('connect');
-    setConnectError('');
-    setIsSecure(false);
-    setUsers([]);
-    setMessages([]);
-    setMyIp('');
-    setMySessionId('');
+    tokenRef.current = '';
+    setScreen('connect'); setConnectError(''); setIsSecure(false);
+    setUsers([]); setMessages([]); setMyUsername(''); setMyRole('user'); setMySessionId('');
+    setShowAdminPanel(false); setAuditLog([]);
   }, [voice]);
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
+  const isAdmin = myRole === 'admin';
+
   if (screen === 'connect') {
-    return (
-      <ConnectScreen
-        onConnect={connect}
-        error={connectError}
-        isConnecting={isConnecting}
-      />
-    );
+    return <ConnectScreen onConnect={connect} error={connectError} isConnecting={isConnecting} />;
   }
 
   return (
     <MainLayout
       users={users}
       messages={messages}
-      myIp={myIp}
+      myUsername={myUsername}
       mySessionId={mySessionId}
+      myRole={myRole}
+      isAdmin={isAdmin}
       isSecure={isSecure}
       voice={voice}
+      showAdminPanel={showAdminPanel}
+      auditLog={auditLog}
+      adminFeedback={adminFeedback}
       onSendMessage={sendMessage}
       onDisconnect={disconnect}
+      onToggleAdminPanel={() => {
+        if (!showAdminPanel) requestAuditLog();
+        else setShowAdminPanel(false);
+      }}
+      onAdminKick={adminKick}
+      onAdminBan={adminBan}
+      onAdminUnban={adminUnban}
+      onRefreshAuditLog={requestAuditLog}
     />
   );
 }

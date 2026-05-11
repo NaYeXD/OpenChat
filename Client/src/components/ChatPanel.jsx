@@ -1,5 +1,10 @@
 /**
- * ChatPanel.jsx (Phase 3) — padlock icon in header when isSecure=true
+ * ChatPanel.jsx — Main chat area (Phase 4)
+ *
+ * Changes:
+ *  - Messages show username instead of IP
+ *  - Admin users get a ⚙ button in the header to open the admin panel
+ *  - Admin feedback toast shown in header area
  */
 
 import { useState, useEffect, useRef } from 'react';
@@ -7,36 +12,32 @@ import { useState, useEffect, useRef } from 'react';
 function formatTime(ts) {
   return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
-
 function formatDate(ts) {
-  return new Date(ts).toLocaleDateString([], {
-    weekday: 'long', month: 'short', day: 'numeric',
-  });
+  return new Date(ts).toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' });
 }
-
 function groupMessages(messages) {
-  const groups  = [];
-  let lastDate  = null;
-
+  const groups = [];
+  let lastDate = null;
   for (const msg of messages) {
-    const dateStr = new Date(msg.timestamp).toDateString();
-    if (dateStr !== lastDate) {
-      groups.push({ type: 'date-divider', label: formatDate(msg.timestamp), _id: `date-${dateStr}` });
-      lastDate = dateStr;
+    const d = new Date(msg.timestamp).toDateString();
+    if (d !== lastDate) {
+      groups.push({ type: 'date-divider', label: formatDate(msg.timestamp), _id: `date-${d}` });
+      lastDate = d;
     }
     groups.push(msg);
   }
   return groups;
 }
 
-export default function ChatPanel({ messages, myIp, isSecure, onSendMessage }) {
+export default function ChatPanel({
+  messages, myUsername, isSecure, isAdmin,
+  onSendMessage, onToggleAdminPanel, adminFeedback,
+}) {
   const [input, setInput] = useState('');
   const endRef   = useRef(null);
   const inputRef = useRef(null);
 
-  useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
   function handleSend(e) {
     e.preventDefault();
@@ -47,29 +48,43 @@ export default function ChatPanel({ messages, myIp, isSecure, onSendMessage }) {
     inputRef.current?.focus();
   }
 
-  function handleKeyDown(e) {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(e); }
-  }
-
   const grouped = groupMessages(messages);
 
   return (
     <div className="chat-panel">
-      {/* ── Header ── */}
+      {/* Header */}
       <div className="cp-header">
         <span className="cp-hash">#</span>
         <span className="cp-channel">general</span>
-        <span className="cp-desc">Server chat — messages are saved on the server</span>
+        <span className="cp-desc">Server chat — messages saved on server</span>
 
-        {/* Padlock — Phase 3 */}
+        {/* Admin feedback toast */}
+        {adminFeedback && (
+          <span className={`cp-admin-feedback ${adminFeedback.startsWith('✓') ? 'is-success' : 'is-error'}`}>
+            {adminFeedback}
+          </span>
+        )}
+
+        {/* Admin panel toggle */}
+        {isAdmin && (
+          <button
+            className="cp-admin-btn"
+            onClick={onToggleAdminPanel}
+            title="Admin Panel"
+          >
+            ⚙ Admin
+          </button>
+        )}
+
+        {/* Padlock */}
         <div className={`cp-tls-badge ${isSecure ? 'is-secure' : 'is-insecure'}`}
-             title={isSecure ? 'Connection is encrypted (wss://)' : 'Not encrypted'}>
+             title={isSecure ? 'Encrypted (wss://)' : 'Not encrypted'}>
           <span className="cp-tls-icon">{isSecure ? '🔒' : '⚠️'}</span>
           <span className="cp-tls-label">{isSecure ? 'Encrypted' : 'Unencrypted'}</span>
         </div>
       </div>
 
-      {/* ── Messages ── */}
+      {/* Messages */}
       <div className="cp-messages" role="log" aria-live="polite">
         {messages.length === 0 && (
           <div className="cp-welcome">
@@ -82,29 +97,34 @@ export default function ChatPanel({ messages, myIp, isSecure, onSendMessage }) {
           if (item.type === 'date-divider') {
             return (
               <div key={item._id} className="cp-date-divider">
-                <span className="cp-date-line" />
-                <span className="cp-date-label">{item.label}</span>
-                <span className="cp-date-line" />
+                <span className="cp-date-line" /><span className="cp-date-label">{item.label}</span><span className="cp-date-line" />
               </div>
             );
           }
           if (item.type === 'system') {
             return (
               <div key={item._id} className="cp-system-msg">
-                <span className="cp-system-icon">•</span>
-                {item.content}
+                <span className="cp-system-icon">•</span>{item.content}
               </div>
             );
           }
-          const isMe = item.sender_ip === myIp;
+
+          // Use username field (Phase 4) falling back to sender_ip (old history)
+          const sender = item.username ?? item.sender_ip ?? '?';
+          const isMe   = sender === myUsername;
+          const isAdminMsg = item.role === 'admin';
+
           return (
             <div key={item._id} className={`cp-msg ${isMe ? 'cp-msg--me' : ''}`}>
-              <div className="cp-msg-avatar" title={item.sender_ip}>
-                {(item.sender_ip ?? '?').split('.').pop()}
+              <div className="cp-msg-avatar" title={sender}>
+                {sender[0]?.toUpperCase() ?? '?'}
               </div>
               <div className="cp-msg-body">
                 <div className="cp-msg-meta">
-                  <span className="cp-msg-sender">{isMe ? 'You' : item.sender_ip}</span>
+                  <span className={`cp-msg-sender ${isAdminMsg ? 'is-admin' : ''}`}>
+                    {isMe ? 'You' : sender}
+                    {isAdminMsg && !isMe && <span className="cp-admin-crown" title="Admin">⚙</span>}
+                  </span>
                   <span className="cp-msg-time">{formatTime(item.timestamp)}</span>
                 </div>
                 <div className="cp-msg-content">{item.content}</div>
@@ -115,7 +135,7 @@ export default function ChatPanel({ messages, myIp, isSecure, onSendMessage }) {
         <div ref={endRef} />
       </div>
 
-      {/* ── Input ── */}
+      {/* Input */}
       <form className="cp-input-area" onSubmit={handleSend}>
         <input
           ref={inputRef}
@@ -124,14 +144,12 @@ export default function ChatPanel({ messages, myIp, isSecure, onSendMessage }) {
           placeholder="Message #general"
           value={input}
           onChange={e => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
+          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(e); } }}
           maxLength={2000}
           autoComplete="off"
           spellCheck
         />
-        <button type="submit" className="cp-send-btn" disabled={!input.trim()} title="Send (Enter)">
-          ↵
-        </button>
+        <button type="submit" className="cp-send-btn" disabled={!input.trim()}>↵</button>
       </form>
     </div>
   );

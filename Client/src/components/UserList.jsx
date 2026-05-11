@@ -1,17 +1,23 @@
 /**
- * UserList.jsx — Left sidebar (Phase 2, with right-click volume control)
+ * UserList.jsx — Left sidebar (Phase 4)
+ *
+ * Shows usernames instead of IPs.
+ * Admin users have a ⚙ badge.
+ * Right-click opens context menu with volume + (admin) kick/ban.
  */
 
 import { useState, useCallback } from 'react';
-import VoiceControls from './VoiceControls.jsx';
-import UserContextMenu from './UserContextMenu.jsx';
+import VoiceControls    from './VoiceControls.jsx';
+import UserContextMenu  from './UserContextMenu.jsx';
 
-export default function UserList({ users, myIp, mySessionId, voice, onDisconnect }) {
+export default function UserList({
+  users, myUsername, mySessionId, myRole,
+  isAdmin, voice,
+  onDisconnect, onAdminKick, onAdminBan,
+}) {
   const { userVolumes, setUserVolume } = voice;
-
-  // ── Context menu state ─────────────────────────────────────────────────────
   const [ctxMenu, setCtxMenu] = useState(null);
-  // ctxMenu: { x, y, user } | null
+  const voiceUserIds = new Set(voice.voiceUsers.map(u => u.sessionId));
 
   const handleRightClick = useCallback((e, user) => {
     e.preventDefault();
@@ -20,12 +26,8 @@ export default function UserList({ users, myIp, mySessionId, voice, onDisconnect
 
   const closeCtxMenu = useCallback(() => setCtxMenu(null), []);
 
-  // ── Voice icon helper ──────────────────────────────────────────────────────
-  const voiceUserIds = new Set(voice.voiceUsers.map(u => u.sessionId));
-
   return (
     <aside className="user-list">
-      {/* Header */}
       <div className="ul-header">
         <span className="ul-header-title">Members</span>
         <span className="ul-count">{users.length}</span>
@@ -36,43 +38,40 @@ export default function UserList({ users, myIp, mySessionId, voice, onDisconnect
         Online — {users.length}
       </div>
 
-      {/* User rows */}
       <div className="ul-users">
-        {users.length === 0 && (
-          <p className="ul-empty">No users connected</p>
-        )}
+        {users.length === 0 && <p className="ul-empty">No users connected</p>}
+
         {users.map(user => {
           const isMe    = user.sessionId === mySessionId;
           const inVoice = user.inVoice || voiceUserIds.has(user.sessionId) || (isMe && voice.inVoice);
           const vol     = userVolumes[user.sessionId] ?? 100;
+          const isAdminUser = user.role === 'admin';
 
           return (
             <div
               key={user.sessionId}
-              className={`ul-user ${isMe ? 'ul-user--me' : ''}`}
+              className={`ul-user ${isMe ? 'ul-user--me' : ''} ${isAdminUser ? 'ul-user--admin' : ''}`}
               onContextMenu={e => handleRightClick(e, { ...user, inVoice })}
               title="Right-click for options"
             >
-              <span className="ul-avatar">{user.ip.split('.').pop() ?? '?'}</span>
+              {/* Avatar: first letter of username */}
+              <span className="ul-avatar" style={isAdminUser ? { borderColor: 'var(--yellow)', color: 'var(--yellow)' } : {}}>
+                {(user.username ?? '?')[0].toUpperCase()}
+              </span>
 
-              <span className="ul-ip">{user.ip}</span>
+              <span className="ul-ip">{user.username}</span>
 
               <div className="ul-user-badges">
-                {/* Volume indicator when not at 100% */}
+                {isAdminUser && <span className="ul-admin-badge" title="Admin">⚙</span>}
                 {!isMe && inVoice && vol !== 100 && (
-                  <span
-                    className="ul-vol-badge"
-                    title={`Volume: ${vol}%`}
-                    style={{ color: vol === 0 ? 'var(--text-muted)' : vol > 100 ? 'var(--yellow)' : 'var(--accent)' }}
-                  >
+                  <span className="ul-vol-badge" title={`Volume: ${vol}%`}
+                    style={{ color: vol === 0 ? 'var(--text-muted)' : vol > 100 ? 'var(--yellow)' : 'var(--accent)' }}>
                     {vol === 0 ? '🔇' : vol > 100 ? '🔊' : '🔉'} {vol}%
                   </span>
                 )}
                 {inVoice && (
-                  <span
-                    className={`ul-voice-badge ${isMe && voice.isMuted ? 'is-muted' : ''}`}
-                    title={isMe && voice.isMuted ? 'Muted' : 'In voice'}
-                  >
+                  <span className={`ul-voice-badge ${isMe && voice.isMuted ? 'is-muted' : ''}`}
+                    title={isMe && voice.isMuted ? 'Muted' : 'In voice'}>
                     {isMe && voice.isMuted ? '🔇' : '🎙'}
                   </span>
                 )}
@@ -83,27 +82,30 @@ export default function UserList({ users, myIp, mySessionId, voice, onDisconnect
         })}
       </div>
 
-      {/* Voice controls */}
       <VoiceControls voice={voice} />
 
-      {/* Footer */}
       <div className="ul-footer">
         <div className="ul-identity">
           <span className="ul-dot online" />
-          <span className="ul-my-ip" title={myIp}>{myIp}</span>
+          <span className="ul-my-ip" title={myUsername}>
+            {myUsername}
+            {myRole === 'admin' && <span style={{ color: 'var(--yellow)', marginLeft: 4 }}>⚙</span>}
+          </span>
         </div>
         <button className="ul-disconnect" onClick={onDisconnect} title="Disconnect">⏻</button>
       </div>
 
-      {/* Context menu (portal-less — positioned fixed) */}
       {ctxMenu && (
         <UserContextMenu
           x={ctxMenu.x}
           y={ctxMenu.y}
           user={ctxMenu.user}
           isMe={ctxMenu.user.sessionId === mySessionId}
+          isAdmin={isAdmin}
           volume={userVolumes[ctxMenu.user.sessionId] ?? 100}
           onVolumeChange={setUserVolume}
+          onKick={onAdminKick}
+          onBan={onAdminBan}
           onClose={closeCtxMenu}
         />
       )}

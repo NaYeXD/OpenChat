@@ -1,0 +1,38 @@
+directories:
+  output: release
+  buildResources: assets
+appId: com.openchat.client
+productName: OpenChat
+copyright: Copyright © 2024 OpenChat Contributors
+files:
+  - filter:
+      - dist/**/*
+      - electron/**/*
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: assets/icon.ico
+mac:
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+  icon: assets/icon.icns
+linux:
+  target:
+    - target: AppImage
+      arch:
+        - x64
+    - target: deb
+      arch:
+        - x64
+  icon: assets/icon.png
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+electronVersion: 42.0.1

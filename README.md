@@ -271,9 +271,9 @@ Security events (failed auth, rate limit hits, oversized messages) are written t
 | 1 | ✅ Done | Text chat, message persistence, Electron client |
 | 2 | ✅ Done | Voice chat (WebRTC), per-user volume, device selection |
 | 3 | ✅ Done | TLS encryption, bcrypt passwords, rate limiting, padlock UI |
-| 4 | Planned | User accounts, registration, login, JWT auth, admin/kick/ban |
-| 5 | Planned | One-click installers, Windows Service, auto-updater |
-| 6 | Planned | STUN/TURN for internet voice, UI polish, public release |
+| 4 | ✅ Done | User accounts, registration, login, JWT auth, admin/kick/ban |
+| 5 | ✅ Done | One-click installers, Windows Service, auto-updater, public release |
+| 6 | Planned | STUN/TURN for internet voice, UI polish |
 
 ---
 

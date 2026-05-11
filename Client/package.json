@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "concurrently -n VITE,ELECTRON -c cyan,green \"vite\" \"wait-on http://localhost:5173 && cross-env NODE_ENV=development electron .\"",
     "build": "vite build && electron-builder",
-    "build:win": "vite build && electron-builder --win",
+    "build:win": "vite build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win",
     "build:mac": "vite build && electron-builder --mac",
     "build:linux": "vite build && electron-builder --linux"
   },
@@ -23,15 +23,37 @@
       "output": "release"
     },
     "win": {
-      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
       "icon": "assets/icon.ico"
     },
     "mac": {
-      "target": [{ "target": "dmg", "arch": ["x64", "arm64"] }],
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
       "icon": "assets/icon.icns"
     },
     "linux": {
-      "target": [{ "target": "AppImage", "arch": ["x64"] }],
+      "target": [
+        {
+          "target": "AppImage", "arch": ["x64"]
+        },
+        {
+          "target": "deb", "arch": ["x64"]
+        }
+      ],
       "icon": "assets/icon.png"
     },
     "nsis": {
@@ -49,8 +71,8 @@
     "@vitejs/plugin-react": "^4.3.1",
     "concurrently": "^8.2.2",
     "cross-env": "^7.0.3",
-    "electron": "^30.0.0",
-    "electron-builder": "^24.13.0",
+    "electron": "^42.0.0",
+    "electron-builder": "^24.13.3",
     "vite": "^5.3.0",
     "wait-on": "^7.2.0"
   }
