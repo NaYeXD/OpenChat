@@ -9,37 +9,47 @@ Open-source, self-hosted voice & text chat. No third-party accounts, no monthly 
 ```
 OpenChat/
 ├── server/
-│   ├── server.js          ← Main server (wss://, auth, signaling, chat)
-│   ├── database.js        ← JSON message persistence
-│   ├── certManager.js     ← TLS certificate generation (node-forge)
-│   ├── securityLog.js     ← Security event logger
+│   ├── server.js               ← Main server (wss://, auth, signaling, chat)
+│   ├── database.js             ← SQLite persistence (messages + user accounts)
+│   ├── auth.js                 ← JWT issuance & verification
+│   ├── certManager.js          ← TLS certificate generation (node-forge)
+│   ├── securityLog.js          ← Security event logger
 │   ├── package.json
 │   ├── .env.example
-│   ├── config/            ← Auto-created: cert.pem, key.pem
-│   ├── openchat-messages.json  ← Auto-created on first message
-│   └── security.log       ← Auto-created on first security event
+│   ├── scripts/
+│   │   ├── install-service.js  ← Registers OpenChat as a Windows Service
+│   │   └── uninstall-service.js
+│   ├── installer/
+│   │   ├── windows/            ← Inno Setup script → OpenChatServer-Setup.exe
+│   ├── release/                ← Built installers land here
+│   ├── config/                 ← Auto-created: cert.pem, key.pem
+│   └── openchat.db             ← Auto-created SQLite database
 │
 └── client/
     ├── electron/
-    │   ├── main.js        ← Electron main process + TLS cert handler
-    │   └── preload.js     ← contextBridge: cert IPC, platform info
+    │   ├── main.js             ← Electron main process + TLS cert handler
+    │   └── preload.js          ← contextBridge: cert IPC, platform info
     ├── src/
-    │   ├── App.jsx        ← Root component, WebSocket + wss:// logic
-    │   ├── main.jsx       ← React entry point
+    │   ├── App.jsx             ← Root component, WebSocket + wss:// logic
+    │   ├── main.jsx            ← React entry point
     │   ├── hooks/
     │   │   └── useVoice.js
     │   ├── components/
-    │   │   ├── ConnectScreen.jsx   ← Login, Remember server, wss badge
+    │   │   ├── ConnectScreen.jsx    ← Login, register, remember server
     │   │   ├── MainLayout.jsx
     │   │   ├── UserList.jsx
-    │   │   ├── ChatPanel.jsx       ← Padlock indicator in header
+    │   │   ├── ChatPanel.jsx        ← Padlock indicator in header
     │   │   ├── VoiceControls.jsx
     │   │   ├── DeviceSelector.jsx
-    │   │   └── UserContextMenu.jsx ← Right-click volume control
+    │   │   ├── AdminPanel.jsx       ← Kick, ban, audit log (admin only)
+    │   │   └── UserContextMenu.jsx  ← Right-click volume control
     │   └── styles/
     │       ├── index.css
     │       ├── voice.css
-    │       └── security.css        ← Phase 3 UI additions
+    │       └── security.css
+    ├── assets/
+    │   ├── icon.ico            ← Windows installer icon
+    │   └── icon.png            ← Linux installer icon
     ├── index.html
     ├── vite.config.js
     └── package.json
@@ -51,50 +61,71 @@ OpenChat/
 
 ### Prerequisites
 
-- [Node.js](https://nodejs.org/) v18 or newer
+- [Node.js](https://nodejs.org/) **v22.5 or newer** (required for built-in SQLite)
 - A microphone (for voice chat)
 
-### Server
+### Option A — Installers (recommended)
 
+Download the latest release from the [Releases](../../releases) page:
+
+| Package | Platform |
+|---|---|
+| `OpenChatServer-Setup-x.x.x.exe` | Windows server |
+| `OpenChat-Setup-x.x.x.exe` | Windows client |
+
+The server installer handles dependencies, `.env` creation, and service registration automatically.
+
+### Option B — Run from source
+
+**Server:**
 ```bash
 cd OpenChat/server
 npm install
+cp .env.example .env   # then edit .env
+npm start
 ```
 
-No native compilation — all dependencies are pure JavaScript or pre-built.
-
-### Client
-
+**Client:**
 ```bash
 cd OpenChat/client
 npm install
+npm run dev
 ```
 
 ---
 
-## How to Run
+## Configuration
 
-### Server
-
-**1 — Configure**
-
-```bash
-cd OpenChat/server
-copy .env.example .env
-```
-
-Edit `.env`:
+Edit `server/.env` before starting:
 
 ```env
 PORT=4000
-SERVER_PASSWORD=your-secret-password
+
+# Generate with: node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
+JWT_SECRET=your-long-random-secret
+JWT_EXPIRY=7d
+
+# Optional: promote a specific username to admin on registration
+ADMIN_USERNAME=
+
+# Optional: use your own TLS cert (e.g. Let's Encrypt)
+CERT_PATH=
+KEY_PATH=
+
+MAX_CONNECTIONS=20
+MAX_PAYLOAD_BYTES=65536
 ```
 
-> ⚠️ Change the password before exposing to any network.
+> ⚠️ Generate a real `JWT_SECRET` before exposing to any network. Never reuse the example value.
 
-**2 — Start**
+---
+
+## How to Run (from source)
+
+### Server
 
 ```bash
+cd OpenChat/server
 npm start
 ```
 
@@ -103,61 +134,14 @@ On first run, the server generates a self-signed TLS certificate and prints:
 ```
 [TLS] No certificate found — generating self-signed RSA-2048 cert…
 [TLS] ✓ Certificate saved to config/cert.pem
-[TLS] ✓ Private key  saved to config/key.pem
-[AUTH] Hashing SERVER_PASSWORD with bcrypt…
-[AUTH] Done. To skip re-hashing on every restart, put this in .env:
-[AUTH]   SERVER_PASSWORD=$2b$12$...
 OpenChat Server listening on wss://0.0.0.0:4000
 ```
 
-Copy the printed `SERVER_PASSWORD=$2b$12$...` hash into your `.env` to avoid re-hashing on every restart.
-
-**Running permanently (Windows — PM2)**
-
-```bash
-npm install -g pm2
-pm2 start server.js --name openchat
-pm2 save && pm2 startup
-```
-
-**Running permanently (Linux — systemd)**
-
-```ini
-[Unit]
-Description=OpenChat Server
-After=network.target
-
-[Service]
-Type=simple
-User=youruser
-WorkingDirectory=/home/youruser/OpenChat/server
-ExecStart=/usr/bin/node server.js
-Restart=on-failure
-EnvironmentFile=/home/youruser/OpenChat/server/.env
-
-[Install]
-WantedBy=multi-user.target
-```
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now openchat
-```
-
----
-
 ### Client
 
-**Terminal 1 — Vite:**
 ```bash
 cd OpenChat/client
-npx vite
-```
-
-**Terminal 2 — Electron (after Vite says "ready"):**
-```bash
-cd OpenChat/client
-npx electron .
+npm run dev
 ```
 
 **Connecting**
@@ -168,48 +152,51 @@ On the Connect screen:
 |---|---|
 | Server Address | `127.0.0.1` (same machine) or the server's LAN/public IP |
 | Port | `4000` |
-| Password | Your `SERVER_PASSWORD` |
 
-A dialog will appear asking you to confirm the self-signed certificate — click **Connect Anyway**. This only appears once per session. Tick **Remember this server** to pre-fill the address next time.
+Register an account on first use. The first registered user is automatically promoted to admin.
+
+A dialog will appear asking you to confirm the self-signed certificate — click **Connect Anyway**. Tick **Remember this server** to pre-fill the address next time.
 
 Once connected, a 🔒 **Encrypted** badge appears in the chat header confirming you are on `wss://`.
 
 ---
 
-## Exposing Your Server to the Internet Safely
+## User Accounts & Admin
+
+OpenChat uses JWT-based accounts stored in a local SQLite database — no third-party auth.
+
+- The **first registered user** becomes admin automatically. You can also set `ADMIN_USERNAME` in `.env` to force a specific username to admin on registration.
+- Admins see an **Admin Panel** in the client with the ability to kick, ban, and unban users, and view the audit log.
+- Banned users are blocked at the WebSocket handshake.
+
+---
+
+## Exposing Your Server to the Internet
 
 ### Step 1 — Port forwarding
 
-On your router, forward TCP port `4000` (or your chosen port) to the **local IP** of your server machine. Your router admin panel will have a "Port Forwarding" or "Virtual Server" section.
+Forward TCP port `4000` (or your chosen port) to your server's local IP in your router's admin panel.
 
-Find your server's local IP:
-- **Windows:** `ipconfig` → look for IPv4 Address
-- **Linux:** `ip addr` → look for `inet` on your LAN adapter
+Find your local IP:
+- **Windows:** `ipconfig` → IPv4 Address
 
 ### Step 2 — Firewall
-
-Allow the port through your OS firewall:
 
 **Windows:**
 ```powershell
 netsh advfirewall firewall add rule name="OpenChat" dir=in action=allow protocol=TCP localport=4000
 ```
 
-**Linux (ufw):**
-```bash
-sudo ufw allow 4000/tcp
-```
-
 ### Step 3 — Find your public IP
 
-Go to [whatismyip.com](https://whatismyip.com) to find your public-facing IP address. Give this to your users. For a stable address, use a free DDNS service like [DuckDNS](https://www.duckdns.org/) so your domain stays the same even if your ISP changes your IP.
+Go to [whatismyip.com](https://whatismyip.com). For a stable address, use a free DDNS service like [DuckDNS](https://www.duckdns.org/).
 
 ### Step 4 — Certificate options
 
 | Option | How | Trust |
 |---|---|---|
-| **Self-signed** (default) | Auto-generated on first run, saved to `config/` | Client sees a one-time warning dialog |
-| **Let's Encrypt** (recommended for public servers) | Use [Certbot](https://certbot.eff.org/) on a domain you own | No warning — fully trusted by all clients |
+| **Self-signed** (default) | Auto-generated on first run | One-time warning dialog in client |
+| **Let's Encrypt** (recommended for public servers) | [Certbot](https://certbot.eff.org/) on a domain you own | No warning — fully trusted |
 
 To use your own cert, set in `.env`:
 ```env
@@ -217,50 +204,34 @@ CERT_PATH=/etc/letsencrypt/live/yourdomain.com/fullchain.pem
 KEY_PATH=/etc/letsencrypt/live/yourdomain.com/privkey.pem
 ```
 
-**Self-signed vs CA-signed:**
-- A self-signed cert encrypts your connection just as well — the only difference is that no authority has verified you own the domain. It is perfectly safe for a server you control; users just need to click through the one-time warning.
-- A CA-signed cert (Let's Encrypt) removes the warning and is better for a public server with many users.
-
-### Security limits (Phase 3 defaults)
+### Security limits (defaults)
 
 | Setting | Default | `.env` key |
 |---|---|---|
 | Max concurrent connections | 20 | `MAX_CONNECTIONS` |
 | Max message size | 64 KB | `MAX_PAYLOAD_BYTES` |
-| Rate limit | 5 new connections / IP / minute, 5-minute ban | hardcoded |
+| Rate limit | 5 connections / IP / minute, 5-min ban | hardcoded |
 
-Security events (failed auth, rate limit hits, oversized messages) are written to `server/security.log`.
+Security events are written to `server/security.log`.
 
 ---
 
 ## What Was Implemented
 
 ### Phase 1 — Foundation
-
-- WebSocket server (`ws` library), password auth, message persistence (JSON file), Electron + React client, real-time text chat, user join/leave events, chat history on connect.
+WebSocket server, password auth, message persistence, Electron + React client, real-time text chat, user join/leave events, chat history on connect.
 
 ### Phase 2 — Voice Chat
-
-- WebRTC peer-to-peer voice via signaling relay on the server. Session IDs per connection. Voice channel join/leave/mute controls. Per-user volume via Web Audio `GainNode` (0–200%). Right-click context menu on users to adjust volume. Audio device selection (mic input, speaker output). Mic icon on voice users.
+WebRTC peer-to-peer voice via signaling relay. Per-user volume via Web Audio `GainNode` (0–200%). Right-click context menu on users. Audio device selection (mic input, speaker output).
 
 ### Phase 3 — Security Hardening
+Upgraded to `wss://` (TLS). Self-signed RSA-2048 cert auto-generated via `node-forge`. Bring-your-own cert support. Passwords hashed with `bcryptjs`. Rate limiting and connection caps. Security event logging. Client cert confirmation dialog and 🔒 badge.
 
-**Server:**
-- Upgraded from `ws://` to `wss://` — all traffic is TLS-encrypted
-- Self-signed RSA-2048 certificate auto-generated via `node-forge` on first run, saved to `config/cert.pem` + `config/key.pem`. Valid for 10 years.
-- Bring-your-own cert supported via `CERT_PATH` / `KEY_PATH` in `.env`
-- Passwords hashed with `bcryptjs` (salt rounds 12) — plain text never used for comparison after startup. Pre-hashing supported for fast restarts.
-- Rate limiting: max 5 connection attempts per IP per 60 seconds, 5-minute ban on breach (in-memory Map, no library)
-- Max concurrent connection cap (default 20, configurable)
-- Incoming message size validation at transport layer (`maxPayload`) and in the handler
-- Security event logging to `security.log` — failed auth, rate limits, malformed messages, oversized payloads
+### Phase 4 — User Accounts & Admin
+SQLite user database (`node:sqlite`). JWT-based registration and login. First-user admin promotion. Admin panel with kick, ban, unban, and audit log. WebSocket authentication via JWT.
 
-**Client:**
-- WebSocket connection uses `wss://` throughout
-- Electron self-signed cert handling via `session.setCertificateVerifyProc` + `app.on('certificate-error')` — covers both page loads and WebSocket upgrades
-- One-time confirmation dialog before connecting to a server using a self-signed cert
-- 🔒 **Encrypted** badge in the chat panel header when connected over `wss://`
-- **Remember this server** checkbox — saves IP and port to `localStorage` for quick reconnect. Includes a "forget" link to clear saved data.
+### Phase 5 — Installers
+Windows `.exe` installer (Inno Setup) — installs server files, runs `npm install`, registers as a Windows Service, starts automatically on boot.
 
 ---
 
@@ -270,10 +241,11 @@ Security events (failed auth, rate limit hits, oversized messages) are written t
 |---|---|---|
 | 1 | ✅ Done | Text chat, message persistence, Electron client |
 | 2 | ✅ Done | Voice chat (WebRTC), per-user volume, device selection |
-| 3 | ✅ Done | TLS encryption, bcrypt passwords, rate limiting, padlock UI |
-| 4 | ✅ Done | User accounts, registration, login, JWT auth, admin/kick/ban |
-| 5 | ✅ Done | One-click installers, Windows Service, auto-updater, public release |
+| 3 | ✅ Done | TLS encryption, bcrypt auth, rate limiting |
+| 4 | ✅ Done | User accounts, JWT auth, admin panel |
+| 5 | ✅ Done | One-click installers, Windows Service, systemd |
 | 6 | Planned | STUN/TURN for internet voice, UI polish |
+| 7 | Planned | Linux and MacOS release |
 
 ---
 
@@ -281,14 +253,14 @@ Security events (failed auth, rate limit hits, oversized messages) are written t
 
 | Problem | Fix |
 |---|---|
-| `ERR_CONNECTION_REFUSED` | Server is not running. Start it with `npm start` in `server/`. |
-| `ERR_CERT_AUTHORITY_INVALID` in Electron | Expected for self-signed certs. Click "Connect Anyway" in the dialog. If no dialog appears, restart Electron. |
-| Black screen on launch | Vite isn't running. Start `npx vite` in Terminal 1 before Electron. |
+| `ERR_CONNECTION_REFUSED` | Server is not running. Start it with `npm start` or check the service status. |
+| `ERR_CERT_AUTHORITY_INVALID` in Electron | Expected for self-signed certs. Click "Connect Anyway" in the dialog. |
+| Black screen on launch | Run `npm run dev` — Vite must be running before Electron in dev mode. |
 | `&&` not working in PowerShell | Use two separate terminals instead. |
-| Password rejected after `.env` change | Make sure you saved the file and restarted the server. |
-| Microphone denied | Allow mic in Windows Settings → Privacy & Security → Microphone. |
-| Voice connects but no audio | Both clients must be on the same LAN. STUN/TURN is not configured until Phase 6. |
-| Cert regenerated unexpectedly | `config/cert.pem` or `config/key.pem` was deleted. The server auto-generates a new one — clients will need to accept it again. |
+| Registration fails | Check that `JWT_SECRET` is set in `.env` and the server restarted after changes. |
+| Voice connects but no audio | STUN/TURN is not yet configured (Phase 6). Voice currently requires both clients on the same LAN. |
+| Cert regenerated unexpectedly | `config/cert.pem` or `config/key.pem` was deleted. Clients will need to accept the new cert. |
+| Windows Service not starting | Open Event Viewer → Windows Logs → Application for node-windows error details. |
 
 ---
 
